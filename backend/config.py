@@ -11,7 +11,7 @@ logger = logging.getLogger("IoT_Bridge")
 class Config:
     # Blockchain
     GANACHE_URL = "http://127.0.0.1:7545"
-    CONTRACT_ADDRESS = "0xcBd79636C9dc6Ded8AAd47A61301c9EB8624f597"
+    CONTRACT_ADDRESS = "0x34Bd88F00CC8043A50633F46E11f4a505521E689"
     
     # Database
     DB_NAME = "medical_data_lake.db"
@@ -54,40 +54,40 @@ class Config:
 		"type": "error"
 	},
 	{
-		"anonymous": false,
+		"anonymous": False,
 		"inputs": [
 			{
-				"indexed": true,
+				"indexed": True,
 				"internalType": "uint256",
 				"name": "id",
 				"type": "uint256"
 			},
 			{
-				"indexed": true,
+				"indexed": True,
 				"internalType": "bytes32",
 				"name": "deviceId",
 				"type": "bytes32"
 			},
 			{
-				"indexed": false,
+				"indexed": False,
 				"internalType": "bytes32",
 				"name": "dataHash",
 				"type": "bytes32"
 			},
 			{
-				"indexed": false,
+				"indexed": False,
 				"internalType": "bool",
 				"name": "critical",
 				"type": "bool"
 			},
 			{
-				"indexed": true,
+				"indexed": True,
 				"internalType": "address",
 				"name": "notarizer",
 				"type": "address"
 			},
 			{
-				"indexed": false,
+				"indexed": False,
 				"internalType": "uint256",
 				"name": "timestamp",
 				"type": "uint256"
@@ -97,16 +97,16 @@ class Config:
 		"type": "event"
 	},
 	{
-		"anonymous": false,
+		"anonymous": False,
 		"inputs": [
 			{
-				"indexed": true,
+				"indexed": True,
 				"internalType": "address",
 				"name": "notarizer",
 				"type": "address"
 			},
 			{
-				"indexed": false,
+				"indexed": False,
 				"internalType": "bool",
 				"name": "enabled",
 				"type": "bool"
@@ -116,16 +116,16 @@ class Config:
 		"type": "event"
 	},
 	{
-		"anonymous": false,
+		"anonymous": False,
 		"inputs": [
 			{
-				"indexed": true,
+				"indexed": True,
 				"internalType": "address",
 				"name": "previousOwner",
 				"type": "address"
 			},
 			{
-				"indexed": true,
+				"indexed": True,
 				"internalType": "address",
 				"name": "newOwner",
 				"type": "address"
