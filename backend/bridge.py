@@ -1,6 +1,9 @@
 import json
 import threading
 import queue
+import hmac
+import hashlib
+import ipaddress
 import paho.mqtt.client as mqtt
 import os
 from config import Config, logger
@@ -26,18 +29,27 @@ class IoTBridge:
 
     def _start_mqtt(self):
         client = mqtt.Client(client_id="iot-bridge-modular", protocol=mqtt.MQTTv311)
+        broker_host = Config.MQTT_BROKER_HOSTNAME or Config.MQTT_BROKER
         
         # TLS Check
         if os.path.exists(Config.CA_CERT):
             client.tls_set(ca_certs=Config.CA_CERT, certfile=Config.CLIENT_CERT, keyfile=Config.CLIENT_KEY)
-            client.tls_insecure_set(True)
             logger.info("TLS Attivato")
+            try:
+                ipaddress.ip_address(broker_host)
+                logger.warning(
+                    "Il broker MQTT e' impostato come IP; il certificato deve includere l'IP nei SAN. "
+                    "Valuta di usare MQTT_BROKER_HOSTNAME con il nome host del certificato."
+                )
+            except ValueError:
+                pass
         
         client.on_connect = self._on_connect
         client.on_message = self._on_message
         
-        logger.info(f"Connessione MQTT a {Config.MQTT_BROKER}...")
-        client.connect(Config.MQTT_BROKER, Config.MQTT_PORT)
+        logger.info(f"Connessione MQTT a {broker_host}...")
+        client.connect(broker_host, Config.MQTT_PORT)
+
         client.loop_forever()
 
     def _on_connect(self, client, userdata, flags, rc):
@@ -65,7 +77,27 @@ class IoTBridge:
                 # Parsing
                 data = json.loads(payload_str)
                 device_id = data.get("id", "UNKNOWN")
-                value = float(data.get("value", 0))
+                ts = data.get("ts")
+                value_raw = data.get("value")
+                value = float(value_raw or 0)
+                signature = data.get("sig")
+
+                if not device_id or not signature or ts is None or value_raw is None:
+                    logger.warning("Payload incompleto: firma o timestamp mancante")
+                    self.message_queue.task_done()
+                    continue
+
+                signed_payload = f"{device_id}{ts}{value_raw}"
+                expected_sig = hmac.new(
+                    Config.HMAC_SECRET.encode("utf-8"),
+                    signed_payload.encode("utf-8"),
+                    hashlib.sha256,
+                ).hexdigest()
+
+                if not hmac.compare_digest(expected_sig, signature):
+                    logger.warning("HMAC non valida: messaggio scartato")
+                    self.message_queue.task_done()
+                    continue
                 
                 # Logica gestione eventi critici
                 is_critical = value > 120 or value < 50
