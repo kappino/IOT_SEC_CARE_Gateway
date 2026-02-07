@@ -7,30 +7,267 @@ from web3 import Web3
 from datetime import datetime
 
 GANACHE_URL = "http://127.0.0.1:7545"
-CONTRACT_ADDRESS = "0xdE451736E6FE99DB5F4F84306829a7871CCeD4D0"
+CONTRACT_ADDRESS = "0xcBd79636C9dc6Ded8AAd47A61301c9EB8624f597"
 
 ABI = [
-    {
-        "anonymous": False,
-        "inputs": [
-            {"indexed": True, "internalType": "uint256", "name": "id", "type": "uint256"},
-            {"indexed": False, "internalType": "bytes32", "name": "deviceId", "type": "bytes32"},
-            {"indexed": False, "internalType": "bool", "name": "critical", "type": "bool"}
-        ],
-        "name": "DataNotarized",
-        "type": "event"
-    },
-    {
-        "inputs": [
-            {"internalType": "bytes32", "name": "_deviceId", "type": "bytes32"},
-            {"internalType": "bytes32", "name": "_dataHash", "type": "bytes32"},
-            {"internalType": "bool", "name": "_critical", "type": "bool"}
-        ],
-        "name": "addRecord",
-        "outputs": [],
-        "stateMutability": "nonpayable",
-        "type": "function"
-    }
+	{
+		"inputs": [],
+		"stateMutability": "nonpayable",
+		"type": "constructor"
+	},
+	{
+		"inputs": [],
+		"name": "DuplicateDataHash",
+		"type": "error"
+	},
+	{
+		"inputs": [],
+		"name": "InvalidAddress",
+		"type": "error"
+	},
+	{
+		"inputs": [],
+		"name": "InvalidPayload",
+		"type": "error"
+	},
+	{
+		"inputs": [],
+		"name": "Unauthorized",
+		"type": "error"
+	},
+	{
+		"anonymous": false,
+		"inputs": [
+			{
+				"indexed": true,
+				"internalType": "uint256",
+				"name": "id",
+				"type": "uint256"
+			},
+			{
+				"indexed": true,
+				"internalType": "bytes32",
+				"name": "deviceId",
+				"type": "bytes32"
+			},
+			{
+				"indexed": false,
+				"internalType": "bytes32",
+				"name": "dataHash",
+				"type": "bytes32"
+			},
+			{
+				"indexed": false,
+				"internalType": "bool",
+				"name": "critical",
+				"type": "bool"
+			},
+			{
+				"indexed": true,
+				"internalType": "address",
+				"name": "notarizer",
+				"type": "address"
+			},
+			{
+				"indexed": false,
+				"internalType": "uint256",
+				"name": "timestamp",
+				"type": "uint256"
+			}
+		],
+		"name": "DataNotarized",
+		"type": "event"
+	},
+	{
+		"anonymous": false,
+		"inputs": [
+			{
+				"indexed": true,
+				"internalType": "address",
+				"name": "notarizer",
+				"type": "address"
+			},
+			{
+				"indexed": false,
+				"internalType": "bool",
+				"name": "enabled",
+				"type": "bool"
+			}
+		],
+		"name": "NotarizerUpdated",
+		"type": "event"
+	},
+	{
+		"anonymous": false,
+		"inputs": [
+			{
+				"indexed": true,
+				"internalType": "address",
+				"name": "previousOwner",
+				"type": "address"
+			},
+			{
+				"indexed": true,
+				"internalType": "address",
+				"name": "newOwner",
+				"type": "address"
+			}
+		],
+		"name": "OwnershipTransferred",
+		"type": "event"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "bytes32",
+				"name": "deviceId",
+				"type": "bytes32"
+			},
+			{
+				"internalType": "bytes32",
+				"name": "dataHash",
+				"type": "bytes32"
+			},
+			{
+				"internalType": "bool",
+				"name": "critical",
+				"type": "bool"
+			}
+		],
+		"name": "addRecord",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "bytes32",
+				"name": "",
+				"type": "bytes32"
+			}
+		],
+		"name": "dataHashUsed",
+		"outputs": [
+			{
+				"internalType": "bool",
+				"name": "",
+				"type": "bool"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "address",
+				"name": "",
+				"type": "address"
+			}
+		],
+		"name": "notarizers",
+		"outputs": [
+			{
+				"internalType": "bool",
+				"name": "",
+				"type": "bool"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "owner",
+		"outputs": [
+			{
+				"internalType": "address",
+				"name": "",
+				"type": "address"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "recordCount",
+		"outputs": [
+			{
+				"internalType": "uint256",
+				"name": "",
+				"type": "uint256"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "uint256",
+				"name": "",
+				"type": "uint256"
+			}
+		],
+		"name": "registry",
+		"outputs": [
+			{
+				"internalType": "uint256",
+				"name": "timestamp",
+				"type": "uint256"
+			},
+			{
+				"internalType": "bytes32",
+				"name": "deviceId",
+				"type": "bytes32"
+			},
+			{
+				"internalType": "bytes32",
+				"name": "dataHash",
+				"type": "bytes32"
+			},
+			{
+				"internalType": "bool",
+				"name": "critical",
+				"type": "bool"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "address",
+				"name": "notarizer",
+				"type": "address"
+			},
+			{
+				"internalType": "bool",
+				"name": "enabled",
+				"type": "bool"
+			}
+		],
+		"name": "setNotarizer",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "address",
+				"name": "newOwner",
+				"type": "address"
+			}
+		],
+		"name": "transferOwnership",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	}
 ]
 
 w3 = Web3(Web3.HTTPProvider(GANACHE_URL))
