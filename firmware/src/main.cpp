@@ -26,6 +26,7 @@
 #define CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
 
 #define PAIRING_WINDOW_MS 60000
+#define DEVICE_LIMIT 3
 
 #define INTERNAL_LED 33 
 #define EXTERNAL_LED 4
@@ -41,13 +42,12 @@ BLEServer* pServer;
 BLECharacteristic* pCharacteristic;
 
 int connectionCount = 0;
-const int MAX_CONNECTIONS = 3;
 
 struct DeviceState {
     String id;
     long lastTs;
 };
-static DeviceState devices[5];
+static DeviceState devices[DEVICE_LIMIT];
 static int deviceCount = 0;
 
 unsigned long lastMqttAttemp = 0;
@@ -78,7 +78,7 @@ bool verifyHMAC(const String& payload) {
     }
 
     if(!dev) {
-        if (deviceCount >= 3) return false;
+        if (deviceCount >= DEVICE_LIMIT) return false;
         devices[deviceCount++] = {String(id),0};
         dev = &devices[deviceCount -1];
     }
@@ -118,7 +118,7 @@ class MyServerCallbacks: public BLEServerCallbacks {
         connectionCount++;
         Serial.printf("[BLE] Device Connected! Total: %d\n", connectionCount);      
         digitalWrite(INTERNAL_LED, LOW); 
-        if (connectionCount < MAX_CONNECTIONS) pServer->startAdvertising();
+        if (connectionCount < DEVICE_LIMIT) pServer->startAdvertising();
     }
 
     void onDisconnect(BLEServer* pServer) {
