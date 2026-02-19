@@ -17,5 +17,9 @@ Thumbs.db
 
 certs/**/*.key
 firmware/include/secrets.h
+firmware/src/secrets.cpp
 *.pem
 *.crt
+*.code-workspace
+medical_data_lake.db
+backend/medical_data_lake.db

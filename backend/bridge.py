@@ -3,7 +3,7 @@ import threading
 import queue
 import hmac
 import hashlib
-import ipaddress
+import ssl
 import paho.mqtt.client as mqtt
 import os
 from config import Config, logger
@@ -12,11 +12,9 @@ from blockchain import BlockchainNotary
 
 class IoTBridge:
     def __init__(self):
-        # Inizializza i moduli
         self.db = DatabaseManager()
         self.bc = BlockchainNotary()
         
-        # Coda per disaccoppiare MQTT da Blockchain
         self.message_queue = queue.Queue()
         self.running = True
 
@@ -33,16 +31,15 @@ class IoTBridge:
         
         # TLS Check
         if os.path.exists(Config.CA_CERT):
-            client.tls_set(ca_certs=Config.CA_CERT, certfile=Config.CLIENT_CERT, keyfile=Config.CLIENT_KEY)
-            logger.info("TLS Attivato")
-            try:
-                ipaddress.ip_address(broker_host)
-                logger.warning(
-                    "Il broker MQTT e' impostato come IP; il certificato deve includere l'IP nei SAN. "
-                    "Valuta di usare MQTT_BROKER_HOSTNAME con il nome host del certificato."
-                )
-            except ValueError:
-                pass
+            logger.info("Configurazione Contesto SSL Sicuro...")
+            
+            context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH, cafile=Config.CA_CERT)
+            context.load_cert_chain(certfile=Config.CLIENT_CERT, keyfile=Config.CLIENT_KEY)
+            context.check_hostname = True
+            context.verify_mode = ssl.CERT_REQUIRED
+
+            client.tls_set_context(context)
+            logger.info("TLS Attivato con verifica certificato.")
         
         client.on_connect = self._on_connect
         client.on_message = self._on_message

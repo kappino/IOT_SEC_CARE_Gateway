@@ -17,7 +17,7 @@ def main():
     try:
         bridge.start()
     except KeyboardInterrupt:
-        logger.info("🛑 Spegnimento manuale richiesto.")
+        logger.info("Spegnimento manuale richiesto.")
         sys.exit(0)
     except Exception as e:
         logger.critical(f"Errore fatale: {e}")

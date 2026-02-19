@@ -17,16 +17,16 @@ class Config:
     DB_NAME = "medical_data_lake.db"
 
     #MQTT
-    MQTT_BROKER = os.getenv("MQTT_BROKER", "192.168.5.37")
+    MQTT_BROKER = os.getenv("MQTT_BROKER", "192.168.137.1")
     MQTT_BROKER_HOSTNAME = os.getenv("MQTT_BROKER_HOSTNAME")
     MQTT_PORT = int(os.getenv("MQTT_PORT", "8883"))
     MQTT_TOPIC = os.getenv("MQTT_TOPIC", "care/gateway/data")
     
     # Certificati
-    WSL_PATH = r"\\wsl.localhost\kali-linux\home\enzo\certs_lab"
+    WSL_PATH = r"\\wsl.localhost\kali-linux\home\enzo\certs_creator\test"
     CA_CERT = os.path.join(WSL_PATH, "ca-cert.pem")
-    CLIENT_CERT = os.path.join(WSL_PATH, "client-cert.pem")
-    CLIENT_KEY = os.path.join(WSL_PATH, "client-key.pem")
+    CLIENT_CERT = os.path.join(WSL_PATH, "python-client-cert.pem")
+    CLIENT_KEY = os.path.join(WSL_PATH, "python-client-key.pem")
 
     HMAC_SECRET = os.getenv("HMAC_SECRET", "care_shared_secret_32bytes")
 
