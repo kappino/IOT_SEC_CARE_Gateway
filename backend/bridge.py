@@ -15,7 +15,7 @@ class IoTBridge:
         self.db = DatabaseManager()
         self.bc = BlockchainNotary()
         
-        self.message_queue = queue.Queue()
+        self.message_queue = queue.Queue(maxsize=200)
         self.running = True
 
     def start(self):
@@ -29,17 +29,19 @@ class IoTBridge:
         client = mqtt.Client(client_id="iot-bridge-modular", protocol=mqtt.MQTTv311)
         broker_host = Config.MQTT_BROKER_HOSTNAME or Config.MQTT_BROKER
         
-        # TLS Check
-        if os.path.exists(Config.CA_CERT):
-            logger.info("Configurazione Contesto SSL Sicuro...")
-            
-            context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH, cafile=Config.CA_CERT)
-            context.load_cert_chain(certfile=Config.CLIENT_CERT, keyfile=Config.CLIENT_KEY)
-            context.check_hostname = True
-            context.verify_mode = ssl.CERT_REQUIRED
+        tls_files = [Config.CA_CERT, Config.CLIENT_CERT, Config.CLIENT_KEY]
+        missing_files = [p for p in tls_files if not os.path.exists(p)]
+        if missing_files:
+            raise FileNotFoundError(f"File TLS mancanti: {', '.join(missing_files)}")
 
-            client.tls_set_context(context)
-            logger.info("TLS Attivato con verifica certificato.")
+        logger.info("Configurazione Contesto SSL Sicuro...")
+        context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH, cafile=Config.CA_CERT)
+        context.load_cert_chain(certfile=Config.CLIENT_CERT, keyfile=Config.CLIENT_KEY)
+        context.check_hostname = True
+        context.verify_mode = ssl.CERT_REQUIRED
+
+        client.tls_set_context(context)
+        logger.info("TLS Attivato con verifica certificato.")
         
         client.on_connect = self._on_connect
         client.on_message = self._on_message
@@ -59,7 +61,9 @@ class IoTBridge:
     def _on_message(self, client, userdata, msg):
         try:
             payload = msg.payload.decode()
-            self.message_queue.put(payload)
+            self.message_queue.put_nowait(payload)
+        except queue.Full:
+            logger.warning("Coda piena: messaggio MQTT scartato")
         except Exception as e:
             logger.error(f"Errore parsing MQTT: {e}")
 
@@ -67,6 +71,7 @@ class IoTBridge:
         logger.info("Worker Thread avviato e in attesa...")
         
         while self.running:
+            payload_str = None
             try:
                 #Prelevo dalla coda
                 payload_str = self.message_queue.get(timeout=1)
@@ -107,15 +112,15 @@ class IoTBridge:
 
                 # Scrittura su db
                 final_status = status_label
-                if tx_hash in ["ERROR", "UNAUTHORIZED", "CONTRACT_ERROR"]:
+                if tx_hash in ["ERROR", "UNAUTHORIZED", "CONTRACT_ERROR", "DUPLICATE_ON_CHAIN"]:
                     final_status = f"{status_label}_CHAIN_FAIL"
                 
                 self.db.save_record(device_id, payload_str, data_hash, tx_hash, final_status)
-                
-                # Segnala completamento
-                self.message_queue.task_done()
 
             except queue.Empty:
                 continue
             except Exception as e:
                 logger.error(f"Errore nel Worker: {e}")
+            finally:
+                if payload_str is not None:
+                    self.message_queue.task_done()

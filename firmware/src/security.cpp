@@ -60,14 +60,6 @@ VerifyResult verifyHMAC(const String& payload) {
     const char* val = valStr.c_str();
 
     if (!id || valStr.isEmpty() || !sig) return VerifyResult::MISSING_FIELDS;
-    
-    DeviceState* dev = findOrRegisterDevice(String(id));
-    if (!dev) return VerifyResult::DEVICE_LIMIT_EXCEEDED;
-
-    if (ts <= dev->lastTs) {
-        Serial.printf("[SEC] Replay from %s (ts=%ld, last=%ld)\n", id, ts, dev->lastTs);
-        return VerifyResult::REPLAY_ATTACK;
-    }
 
     char dataBuf[512];
     int written = snprintf(dataBuf, sizeof(dataBuf), "%s%ld%s", id, ts, val);
@@ -83,6 +75,15 @@ VerifyResult verifyHMAC(const String& payload) {
     if (strcmp(computed, sig) != 0) {
         Serial.printf("[SEC] Bad sig\n  calc: %s\n  recv: %s\n", computed, sig);
         return VerifyResult::BAD_SIGNATURE;
+    }
+
+    // Registra il device solo dopo firma valida per evitare saturazione con ID fake.
+    DeviceState* dev = findOrRegisterDevice(String(id));
+    if (!dev) return VerifyResult::DEVICE_LIMIT_EXCEEDED;
+
+    if (ts <= dev->lastTs) {
+        Serial.printf("[SEC] Replay from %s (ts=%ld, last=%ld)\n", id, ts, dev->lastTs);
+        return VerifyResult::REPLAY_ATTACK;
     }
 
     dev->lastTs = ts;
