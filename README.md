@@ -213,7 +213,7 @@ docker restart care_broker
 
   Backend: Aggiornare la variabile MQTT_BROKER (es. tramite export .env) con il nuovo IP.
 
-  SP32: Aggiornare la costante MQTT_SERVER in firmware/src/secrets.cpp e rieseguire il flash:
+  ESP32: Aggiornare la costante MQTT_SERVER in firmware/src/secrets.cpp e rieseguire il flash:
     ```bash
 
     pio run -t clean
