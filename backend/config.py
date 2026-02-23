@@ -11,7 +11,7 @@ logger = logging.getLogger("IoT_Bridge")
 class Config:
     # Blockchain
     GANACHE_URL = "http://127.0.0.1:7545"
-    CONTRACT_ADDRESS = "0x34Bd88F00CC8043A50633F46E11f4a505521E689"
+    CONTRACT_ADDRESS = "0x55E3065D41c5705f26105C3Bdf8F1C146174Fcd2"
     
     # Database
     DB_NAME = "medical_data_lake.db"

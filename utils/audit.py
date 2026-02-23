@@ -7,7 +7,7 @@ from web3 import Web3
 from colorama import Fore, Style, init
 import sys
 import os
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from backend.config import Config
 
 # Inizializza colorama
@@ -23,7 +23,14 @@ try:
     w3 = Web3(Web3.HTTPProvider(Config.GANACHE_URL))
     if not w3.is_connected():
         raise RuntimeError("Nodo Ethereum irraggiungibile")
-    
+
+    deployed_code = w3.eth.get_code(Config.CONTRACT_ADDRESS)
+    if not deployed_code:
+        raise RuntimeError(
+            f"Nessun contratto trovato a {Config.CONTRACT_ADDRESS} su {Config.GANACHE_URL}. "
+            "Verifica CONTRACT_ADDRESS/chain."
+        )
+
     contract = w3.eth.contract(address=Config.CONTRACT_ADDRESS, abi=Config.CONTRACT_ABI)
     OWNER_ACCOUNT = w3.eth.accounts[0] 
 
@@ -115,6 +122,10 @@ def verify_record_integrity(role):
 
     except Exception as e:
         print(f"{Fore.RED}[EXCEPTION] Errore durante la verifica: {e}")
+        print(
+            f"{Fore.YELLOW}[HINT] Controlla che audit e bridge puntino alla stessa chain/address "
+            f"({Config.GANACHE_URL} | {Config.CONTRACT_ADDRESS})."
+        )
 
 def manage_notarizers(role):
     print_header(role)
