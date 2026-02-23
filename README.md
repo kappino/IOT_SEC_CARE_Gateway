@@ -33,7 +33,7 @@ Eseguire i seguenti comandi all'interno dell'ambiente WSL/Linux:
 mkdir -p /home/enzo/certs_creator/test
 cd /home/enzo/certs_creator/test
 ```
-1.1 Generazione della Certification Authority (CA)
+### 1.1 Generazione della Certification Authority (CA)
 
 Inizializza la chiave privata della CA e il certificato Root (validità 10 anni).
 ```bash
@@ -41,7 +41,7 @@ Inizializza la chiave privata della CA e il certificato Root (validità 10 anni)
 openssl genrsa -out ca-key.pem 2048
 openssl req -x509 -new -nodes -key ca-key.pem -sha256 -days 3650 -out ca-cert.pem
 ```
-1.2 Generazione Certificato Server (con IP SAN)
+### 1.2 Generazione Certificato Server (con IP SAN)
 
 La libreria mbedTLS dell'ESP32 esige la presenza dell'IP nel campo Subject Alternative Name (SAN) e l'estensione serverAuth.
 ```bash
@@ -58,7 +58,7 @@ openssl x509 -req -in server.csr -CA ca-cert.pem -CAkey ca-key.pem \
   -CAcreateserial -out server-cert.pem -days 365 -sha256 \
   -extfile server-ext.cnf
 ```
-1.3 Generazione Certificati Client (Python + ESP32)
+### 1.3 Generazione Certificati Client (Python + ESP32)
 
 Ogni endpoint richiede l'estensione clientAuth per l'autenticazione mTLS.
 ```bash
@@ -93,7 +93,7 @@ Workaround mbedTLS: Generazione del formato RSA tradizionale per la chiave priva
 
 openssl rsa -traditional -in esp32-client-key.pem -out esp32-client-key-rsa.pem
 ```
-2) Verifica Crittografica
+## 2) Verifica Crittografica
 
 Validazione della catena di trust e controllo dell'estensione SAN.
 ```bash
@@ -109,7 +109,7 @@ Expected Output:
 
     L'ultimo comando deve stampare IP Address:192.168.137.1.
 
-3) Deploy sul Broker Mosquitto
+## 3) Deploy sul Broker Mosquitto
 
 Copia dei payload crittografici nella directory esposta al container Docker del broker.
 ```bash
@@ -123,7 +123,7 @@ Riavvio del servizio per caricare il nuovo contesto TLS in memoria:
 
 docker restart care_broker
 ```
-4) Configurazione Backend (Python Bridge)
+## 4) Configurazione Backend (Python Bridge)
 
 Il file backend/config.py deve puntare ai path corretti dei certificati client:
 
@@ -133,7 +133,7 @@ Il file backend/config.py deve puntare ai path corretti dei certificati client:
 
     CLIENT_KEY -> python-client-key.pem
 
-5) Configurazione Firmware (ESP32)
+## 5) Configurazione Firmware (ESP32)
 
 Aprire il file sorgente firmware/src/secrets.cpp e sovrascrivere le costanti stringa inserendo il contenuto testuale esatto dei file .pem:
 
@@ -150,38 +150,38 @@ pio run -t clean
 pio run -t upload
 ```
 
-6) Controlli a Runtime
+## 6) Controlli a Runtime
 
-    Backend Logs: Il bridge Python deve mostrare [INFO] bridge: TLS Attivato con verifica certificato e l'iscrizione ai topic confermata.
+   Backend Logs: Il bridge Python deve mostrare [INFO] bridge: TLS Attivato con verifica certificato e l'iscrizione ai topic confermata.
 
-    Mosquitto Logs: Verificare le identità X.509 estratte dalle ACL del broker:
+   Mosquitto Logs: Verificare le identità X.509 estratte dalle ACL del broker:
 
         Connessione bridge: New client connected... as python-client
 
         Connessione edge: New client connected... as esp32-client
 
-7) Troubleshooting & Codici di Errore
+## 7) Troubleshooting & Codici di Errore
 
-    CERTIFICATE_VERIFY_FAILED (Python) / Disallineamento IP:
+   CERTIFICATE_VERIFY_FAILED (Python) / Disallineamento IP:
 
         Causa: Il certificato del server non ha il campo SAN configurato con l'IP attuale del broker.
 
-    ESP32 lastError=-9984 (X509 - Certificate verification failed):
+   ESP32 lastError=-9984 (X509 - Certificate verification failed):
 
         Causa: Mismatch della CA, certificato server mancante dell'estensione serverAuth, oppure firmware obsoleto (non riflashato dopo l'update di secrets.cpp).
 
-    ESP32 PADLOCK - Input data should be aligned:
+   ESP32 PADLOCK - Input data should be aligned:
 
         Causa: La chiave privata passata a mbedTLS non è nel formato legacy corretto. Utilizzare esclusivamente esp32-client-key-rsa.pem (che inizia con BEGIN RSA PRIVATE KEY).
 
-    Mosquitto "not authorised" (con use_identity_as_username true):
+   Mosquitto "not authorised" (con use_identity_as_username true):
 
         Causa: Il certificato client è privo del campo CN (Common Name) richiesto per mappare l'utente nelle regole ACL.
 
-8) Procedura Rapida: Cambio IP del Broker
+## 8) Procedura Rapida: Cambio IP del Broker
 
 Se l'indirizzo IP del gateway/hotspot cambia (es. da 192.168.137.1 a 192.168.55.1), NON è necessario rigenerare la CA o i certificati client. È sufficiente rigenerare e sostituire esclusivamente il certificato del server aggiornando il campo SAN.
-8.1 Rigenerazione del Server Certificate
+### 8.1 Rigenerazione del Server Certificate
 ```bash
 
 cd /home/enzo/certs_creator/test
@@ -202,14 +202,14 @@ openssl x509 -req -in server.csr -CA ca-cert.pem -CAkey ca-key.pem \
 openssl verify -CAfile ca-cert.pem server-cert.pem
 openssl x509 -in server-cert.pem -noout -ext subjectAltName
 ```
-8.2 Deploy e Riavvio
+### 8.2 Deploy e Riavvio
 ```bash
 
 cp server-cert.pem /mnt/c/Progetti/CARE_Lab/mosquitto/config/certs/server-cert.pem
 cp server-key.pem /mnt/c/Progetti/CARE_Lab/mosquitto/config/certs/server-key.pem
 docker restart care_broker
 ```
-8.3 Aggiornamento degli Endpoint
+### 8.3 Aggiornamento degli Endpoint
 
   Backend: Aggiornare la variabile MQTT_BROKER (es. tramite export .env) con il nuovo IP.
 
