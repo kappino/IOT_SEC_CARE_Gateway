@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
-contract HealthNotary {
+import "@openzeppelin/contracts/access/Ownable.sol";
+
+contract HealthNotary is Ownable {
     error Unauthorized();
     error InvalidAddress();
     error InvalidPayload();
     error DuplicateDataHash();
 
-    address public owner;
     uint256 public recordCount;
 
     struct Record {
@@ -30,29 +31,21 @@ contract HealthNotary {
         uint256 timestamp
     );
     event NotarizerUpdated(address indexed notarizer, bool enabled);
-    event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
-
-    modifier onlyOwner() {
-        if (msg.sender != owner) revert Unauthorized();
-        _;
-    }
 
     modifier onlyNotarizer() {
         if (!notarizers[msg.sender]) revert Unauthorized();
         _;
     }
 
-    constructor() {
-        owner = msg.sender;
+    constructor() Ownable(msg.sender) {
         notarizers[msg.sender] = true;
         emit NotarizerUpdated(msg.sender, true);
     }
 
-    function transferOwnership(address newOwner) external onlyOwner {
+    function transferOwnership(address newOwner) public override onlyOwner {
         if (newOwner == address(0)) revert InvalidAddress();
-        owner = newOwner;
+        super.transferOwnership(newOwner);
         notarizers[newOwner] = true;
-        emit OwnershipTransferred(msg.sender, newOwner);
         emit NotarizerUpdated(newOwner, true);
     }
 
