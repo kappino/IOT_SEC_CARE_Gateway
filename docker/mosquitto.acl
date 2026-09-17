@@ -1,0 +1,12 @@
+# ==============================================================================
+# Mosquitto Access Control List (ACL) - Principle of Least Privilege
+# Identities mapped from Client Certificate Common Name (CN)
+# ==============================================================================
+
+# ESP32 Edge Device: can ONLY publish telemetry to the gateway ingest topic
+user esp32-client
+topic write care/gateway/data
+
+# Python Backend Bridge: can ONLY subscribe to read incoming telemetry
+user python-client
+topic read care/gateway/#

@@ -1,25 +1,38 @@
+# PlatformIO & Embedded Builds
 .pio/
 .vscode/
 firmware/.pio/
 firmware/.vscode/
 **/*.bin
 **/*.elf
+build/
 
+# Python & Virtual Environments
 __pycache__/
 *.py[cod]
 *$py.class
 venv/
 .env
 
+# OS & Editor Metadata
 .DS_Store
 Thumbs.db
 .idea/
+*.code-workspace
 
+# Certificates & Private Cryptographic Keys (STRICT)
 certs/**/*.key
-firmware/include/secrets.h
-firmware/src/secrets.cpp
+*.key
 *.pem
 *.crt
-*.code-workspace
+*.csr
+*.srl
+.tmp_*
+firmware/src/secrets.cpp
+
+# SQLite & Data Lakes (Contains Patient Test Data)
+*.db
+*.sqlite
+*.sqlite3
 medical_data_lake.db
 backend/medical_data_lake.db

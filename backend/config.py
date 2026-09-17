@@ -22,11 +22,13 @@ class Config:
     MQTT_PORT = int(os.getenv("MQTT_PORT", "8883"))
     MQTT_TOPIC = os.getenv("MQTT_TOPIC", "care/gateway/data")
     
-    # Certificati
-    WSL_PATH = r"\\wsl.localhost\kali-linux\home\enzo\certs_creator\test"
-    CA_CERT = os.path.join(WSL_PATH, "ca-cert.pem")
-    CLIENT_CERT = os.path.join(WSL_PATH, "python-client-cert.pem")
-    CLIENT_KEY = os.path.join(WSL_PATH, "python-client-key.pem")
+    # Certificati (Configurabili da variabile d'ambiente o fallback sulla cartella certs/)
+    BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    CERTS_DIR = os.getenv("CERTS_DIR", os.path.join(BASE_DIR, "certs"))
+    
+    CA_CERT = os.getenv("CA_CERT", os.path.join(CERTS_DIR, "ca-cert.pem"))
+    CLIENT_CERT = os.getenv("CLIENT_CERT", os.path.join(CERTS_DIR, "python-client-cert.pem"))
+    CLIENT_KEY = os.getenv("CLIENT_KEY", os.path.join(CERTS_DIR, "python-client-key.pem"))
 
     HMAC_SECRET = os.getenv("HMAC_SECRET", "care_shared_secret_32bytes")
 

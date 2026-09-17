@@ -1,221 +1,190 @@
-# IOT_SEC_CARE_Gateway: Sicurezza e PKI
+# Secure-by-Design IoT Healthcare Architecture
+### Zero-Trust mTLS Hardening & Blockchain-Anchored Auditability
 
-Questa documentazione definisce l'architettura di sicurezza e le procedure di *hardening* crittografico per il progetto **IOT_SEC_CARE_Gateway**. 
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![Security: mTLS v1.3](https://img.shields.io/badge/Security-mTLS_v1.3_%7C_Zero--Trust-success)](https://en.wikipedia.org/wiki/Mutual_authentication)
+[![Platform: ESP32](https://img.shields.io/badge/Hardware-ESP32_%7C_mbedTLS-orange)](https://www.espressif.com/)
+[![Blockchain: Solidity](https://img.shields.io/badge/Blockchain-Solidity_%7C_EVM-363636?logo=solidity)](https://soliditylang.org/)
+[![Container: Docker](https://img.shields.io/badge/Container-Docker_%7C_Mosquitto-2496ed?logo=docker)](https://mosquitto.org/)
 
-L'infrastruttura implementa un modello **Zero-Trust** basato su **Mutual TLS (mTLS) v1.2/v1.3**, garantendo confidenzialità, integrità e *Non-Repudiation* a livello di trasporto. La validazione X.509 bidirezionale previene attacchi di tipo *Man-in-the-Middle* (MitM) e *Rogue Device Impersonation*.
+An end-to-end, defense-in-depth security architecture designed to protect sensitive biomedical IoT telemetry against **Device Impersonation**, **MAC Spoofing**, **Man-in-the-Middle (MitM)**, and **Unauthorized Data Tampering**.
 
-### Architettura della Public Key Infrastructure (PKI)
-Il sistema utilizza una CA (Certification Authority) privata offline che firma e gestisce l'intero trust crittografico:
-* **1 CA Root:** `ca-cert.pem`
-* **1 Server Certificate (MQTT Broker):** `server-cert.pem` (con estensione SAN per binding IP rigoroso).
-* **2 Client Certificates (Endpoint Auth):**  `python-client-cert.pem` (per il Bridge Backend)
-  * `esp32-client-cert.pem` (per il Firmware Edge)
-
----
-
-## Indice
-1. [Creazione dei Certificati (PKI Setup)](#1-creazione-dei-certificati-pki-setup)
-2. [Verifica Crittografica](#2-verifica-crittografica)
-3. [Deploy sul Broker Mosquitto](#3-deploy-sul-broker-mosquitto)
-4. [Configurazione Backend (Python Bridge)](#4-configurazione-backend-python-bridge)
-5. [Configurazione Firmware (ESP32)](#5-configurazione-firmware-esp32)
-6. [Controlli a Runtime](#6-controlli-a-runtime)
-7. [Troubleshooting & Codici di Errore](#7-troubleshooting--codici-di-errore)
-8. [Procedura Rapida: Cambio IP del Broker](#8-procedura-rapida-cambio-ip-del-broker)
+Developed in collaboration with research activities surrounding assistive robotic frameworks (PNRR **Age-IT**), this repository provides a production-grade implementation of hardware-enforced **Mutual TLS (mTLS v1.3)**, source-level **HMAC-SHA256 signatures**, and **Ethereum Smart Contract notarization** for GDPR-compliant non-repudiation.
 
 ---
 
-## 1) Creazione dei Certificati (PKI Setup)
+## 🏛️ Architectural Overview
 
-Eseguire i seguenti comandi all'interno dell'ambiente WSL/Linux:
-
-```bash
-mkdir -p /home/enzo/certs_creator/test
-cd /home/enzo/certs_creator/test
 ```
-### 1.1 Generazione della Certification Authority (CA)
-
-Inizializza la chiave privata della CA e il certificato Root (validità 10 anni).
-```bash
-
-openssl genrsa -out ca-key.pem 2048
-openssl req -x509 -new -nodes -key ca-key.pem -sha256 -days 3650 -out ca-cert.pem
-```
-### 1.2 Generazione Certificato Server (con IP SAN)
-
-La libreria mbedTLS dell'ESP32 esige la presenza dell'IP nel campo Subject Alternative Name (SAN) e l'estensione serverAuth.
-```bash
-
-cat > server-ext.cnf << 'EOF'
-subjectAltName=IP:192.168.137.1,DNS:192.168.137.1
-keyUsage=critical,digitalSignature,keyEncipherment
-extendedKeyUsage=serverAuth
-EOF
-
-openssl genrsa -out server-key.pem 2048
-openssl req -new -key server-key.pem -out server.csr
-openssl x509 -req -in server.csr -CA ca-cert.pem -CAkey ca-key.pem \
-  -CAcreateserial -out server-cert.pem -days 365 -sha256 \
-  -extfile server-ext.cnf
-```
-### 1.3 Generazione Certificati Client (Python + ESP32)
-
-Ogni endpoint richiede l'estensione clientAuth per l'autenticazione mTLS.
-```bash
-
-cat > client-ext.cnf << 'EOF'
-keyUsage=critical,digitalSignature,keyEncipherment
-extendedKeyUsage=clientAuth
-EOF
-
-# -------------------------
-# Endpoint 1: Python Bridge
-# -------------------------
-openssl genrsa -out python-client-key.pem 2048
-openssl req -new -key python-client-key.pem -out python-client.csr \
-  -subj "/C=IT/ST=Italy/O=CARE/CN=python-client"
-openssl x509 -req -in python-client.csr -CA ca-cert.pem -CAkey ca-key.pem \
-  -CAcreateserial -out python-client-cert.pem -days 365 -sha256 \
-  -extfile client-ext.cnf
-
-# -------------------------
-# Endpoint 2: ESP32 Gateway
-# -------------------------
-openssl genrsa -out esp32-client-key.pem 2048
-openssl req -new -key esp32-client-key.pem -out esp32-client.csr \
-  -subj "/C=IT/ST=Italy/O=CARE/CN=esp32-client"
-openssl x509 -req -in esp32-client.csr -CA ca-cert.pem -CAkey ca-key.pem \
-  -CAcreateserial -out esp32-client-cert.pem -days 365 -sha256 \
-  -extfile client-ext.cnf
-```
-Workaround mbedTLS: Generazione del formato RSA tradizionale per la chiave privata dell'ESP32 (previene errori di allineamento e memoria).
-```bash
-
-openssl rsa -traditional -in esp32-client-key.pem -out esp32-client-key-rsa.pem
-```
-## 2) Verifica Crittografica
-
-Validazione della catena di trust e controllo dell'estensione SAN.
-```bash
-
-openssl verify -CAfile ca-cert.pem server-cert.pem
-openssl verify -CAfile ca-cert.pem python-client-cert.pem
-openssl verify -CAfile ca-cert.pem esp32-client-cert.pem
-openssl x509 -in server-cert.pem -noout -ext subjectAltName
-```
-Expected Output:
-
-    Tutti i comandi verify devono restituire OK.
-
-    L'ultimo comando deve stampare IP Address:192.168.137.1.
-
-## 3) Deploy sul Broker Mosquitto
-
-Copia dei payload crittografici nella directory esposta al container Docker del broker.
-```bash
-
-cp server-cert.pem /mnt/c/Progetti/CARE_Lab/mosquitto/config/certs/server-cert.pem
-cp server-key.pem /mnt/c/Progetti/CARE_Lab/mosquitto/config/certs/server-key.pem
-cp ca-cert.pem /mnt/c/Progetti/CARE_Lab/mosquitto/config/certs/ca-cert.pem
-```
-Riavvio del servizio per caricare il nuovo contesto TLS in memoria:
-```bash
-
-docker restart care_broker
-```
-## 4) Configurazione Backend (Python Bridge)
-
-Il file backend/config.py deve puntare ai path corretti dei certificati client:
-
-    CA_CERT -> ca-cert.pem
-
-    CLIENT_CERT -> python-client-cert.pem
-
-    CLIENT_KEY -> python-client-key.pem
-
-## 5) Configurazione Firmware (ESP32)
-
-Aprire il file sorgente firmware/src/secrets.cpp e sovrascrivere le costanti stringa inserendo il contenuto testuale esatto dei file .pem:
-
-    ca_cert_pem <- Contenuto di ca-cert.pem
-
-    client_cert_pem <- Contenuto di esp32-client-cert.pem
-
-    client_key_pem <- Contenuto di esp32-client-key-rsa.pem (Attenzione: usare la versione RSA)
-
-Successivamente, pulire la build ed eseguire il flash:
-```bash
-
-pio run -t clean
-pio run -t upload
+ +-----------------------------------------------------------------------------------+
+ | 1. EDGE LAYER (Biomedical Wearable & Ingestion)                                  |
+ |                                                                                   |
+ |  [ Medical Sensor ]  ---- BLE Advertisements ---->  [ ESP32 Security Gateway ]    |
+ |  (Pulse Oximeter)    (Payload + HMAC-SHA256 Key)     (mbedTLS Crypto Core)        |
+ +-----------------------------------------------------------------------------------+
+                                         │
+                               mTLS v1.3 Encrypted Pipe
+                       (Bidirectional X.509 Certificate Validation)
+                                         ▼
+ +-----------------------------------------------------------------------------------+
+ | 2. TRANSPORT & INGESTION LAYER (Zero-Trust Broker)                                |
+ |                                                                                   |
+ |  [ Docker Mosquitto Broker ] <====== Granular ACL Enforced ======> [ Python Ingest]|
+ |  - Force clientAuth                                                 (Bridge Core) |
+ |  - Map Common Name (CN) to MQTT Identity                                          |
+ +-----------------------------------------------------------------------------------+
+                                         │
+                                         ▼
+ +-----------------------------------------------------------------------------------+
+ | 3. PERSISTENCE & DISTRIBUTED TRUST LAYER (Auditability & Non-Repudiation)         |
+ |                                                                                   |
+ |        ┌──────────────────────────────┴──────────────────────────────┐            |
+ |        ▼                                                             ▼            |
+ |  [ Local Medical Data Lake ]                            [ Ethereum EVM / Ganache ]|
+ |  (Encrypted SQLite Storage)                             (HealthNotary.sol)        |
+ |  Raw vitals, metadata, timestamp                        SHA-256 Digest & DeviceID |
+ |                                                         *Zero Plaintext PII*      |
+ +-----------------------------------------------------------------------------------+
 ```
 
-## 6) Controlli a Runtime
+---
 
-   Backend Logs: Il bridge Python deve mostrare [INFO] bridge: TLS Attivato con verifica certificato e l'iscrizione ai topic confermata.
+## 🎯 Threat Model & Attack Simulation (PoC)
 
-   Mosquitto Logs: Verificare le identità X.509 estratte dalle ACL del broker:
+In standard e-health architectures, gateway hubs blindly trust BLE sensors using static MAC address filtering.
 
-        Connessione bridge: New client connected... as python-client
+* **Vulnerability Demonstrated:** Using an off-the-shelf ESP32 board (*"Evil ESP32"*), we successfully spoofed the public MAC address of a commercial pulse oximeter (Jumper 500F) and transmitted forged vitals simulating cardiac arrest (180 BPM) that were naively ingested by unhardened gateways.
+* **Countermeasures Deployed in this Architecture:**
+  1. **Source Authentication:** Payloads lacking valid cryptographic **HMAC-SHA256 signatures** calculated with a pre-shared device key are dropped at the edge before cloud dispatch.
+  2. **Zero-Trust Mutual TLS:** Rogue devices attempting to connect to the broker are rejected during the TLS handshake due to the absence of a signed X.509 client certificate.
+  3. **Access Control Lists (ACL):** Even compromised clients cannot access unauthorized topics; permissions are strictly mapped to the Common Name (CN) verified by the broker.
+  4. **Blockchain Notarization:** Database administrators or malicious insiders cannot alter historical telemetry undetected; any record's hash must match the immutable on-chain fingerprint recorded in `HealthNotary.sol`.
 
-        Connessione edge: New client connected... as esp32-client
+---
 
-## 7) Troubleshooting & Codici di Errore
+## 🛡️ Security Verification Matrix
 
-   CERTIFICATE_VERIFY_FAILED (Python) / Disallineamento IP:
+| Threat Vector | Attack Scenario | Traditional IoT Gateway | Our Hardened Architecture |
+| :--- | :--- | :---: | :---: |
+| **BLE MAC Spoofing** | Rogue board clones sensor MAC | ❌ **Compromised** (Ingested) | ✅ **Blocked** (Invalid HMAC signature dropped) |
+| **Network Sniffing** | Wireshark promiscuous capture | ❌ **Plaintext Leaked** | ✅ **Blocked** (mTLS v1.3 AES-GCM encrypted) |
+| **Rogue Broker MitM** | Attacker redirects DNS/IP | ❌ **Compromised** | ✅ **Blocked** (Broker cert verified with IP SAN) |
+| **Client Impersonation** | Unauthorized MQTT client injects data | ❌ **Compromised** | ✅ **Blocked** (Dropped at handshake: no clientAuth) |
+| **Database Tampering** | Malicious DB update / Ransomware | ❌ **Undetected** | ✅ **Detected** (On-chain hash audit fails) |
 
-        Causa: Il certificato del server non ha il campo SAN configurato con l'IP attuale del broker.
+---
 
-   ESP32 lastError=-9984 (X509 - Certificate verification failed):
+## 📜 Smart Contract: `HealthNotary.sol`
 
-        Causa: Mismatch della CA, certificato server mancante dell'estensione serverAuth, oppure firmware obsoleto (non riflashato dopo l'update di secrets.cpp).
+The notarization layer runs as an EVM smart contract (`blockchain/HealthNotary.sol`) optimized for low gas consumption and GDPR compliance:
 
-   ESP32 PADLOCK - Input data should be aligned:
+* **Zero Plaintext PII:** Patient identifiers and health parameters are **never stored on-chain**. Only the `bytes32` cryptographic digest (`SHA-256(payload)`) and anonymized `bytes32 deviceId` are recorded.
+* **Non-Repudiation & Timestamps:** Transactions automatically seal the block timestamp and the cryptographic identity of the authorized `notarizer` account.
+* **Anti-Collision Guard:** Custom error `DuplicateDataHash` reverts attempts to re-notarize identical records or replay attack packets.
+* **Role-Based Access Control (RBAC):** Restricts record creation strictly to verified gateway ingest bridges using custom `Unauthorized` errors.
 
-        Causa: La chiave privata passata a mbedTLS non è nel formato legacy corretto. Utilizzare esclusivamente esp32-client-key-rsa.pem (che inizia con BEGIN RSA PRIVATE KEY).
+---
 
-   Mosquitto "not authorised" (con use_identity_as_username true):
+## 🚀 Quick Start Guide
 
-        Causa: Il certificato client è privo del campo CN (Common Name) richiesto per mappare l'utente nelle regole ACL.
+### Prerequisites
+* **Docker & Docker Compose**
+* **Python 3.10+** (with `pip`)
+* **PlatformIO CLI / VSCode Extension** (for ESP32 firmware)
+* **Local Ethereum Node** ([Ganache](https://trufflesuite.com/ganache/) or Hardhat)
 
-## 8) Procedura Rapida: Cambio IP del Broker
+---
 
-Se l'indirizzo IP del gateway/hotspot cambia (es. da 192.168.137.1 a 192.168.55.1), NON è necessario rigenerare la CA o i certificati client. È sufficiente rigenerare e sostituire esclusivamente il certificato del server aggiornando il campo SAN.
-### 8.1 Rigenerazione del Server Certificate
+### 1. Generate Private PKI Hierarchy
+Execute the included automated certificate provisioning script:
+
 ```bash
-
-cd /home/enzo/certs_creator/test
-
-cat > server-ext.cnf << 'EOF'
-subjectAltName=IP:192.168.55.1,DNS:192.168.55.1
-keyUsage=critical,digitalSignature,keyEncipherment
-extendedKeyUsage=serverAuth
-EOF
-
-openssl genrsa -out server-key.pem 2048
-openssl req -new -key server-key.pem -out server.csr
-openssl x509 -req -in server.csr -CA ca-cert.pem -CAkey ca-key.pem \
-  -CAcreateserial -out server-cert.pem -days 365 -sha256 \
-  -extfile server-ext.cnf
-
-# Verifica rapida
-openssl verify -CAfile ca-cert.pem server-cert.pem
-openssl x509 -in server-cert.pem -noout -ext subjectAltName
+chmod +x certs/generate_certs.sh
+./certs/generate_certs.sh 127.0.0.1
 ```
-### 8.2 Deploy e Riavvio
+
+This creates:
+* `certs/ca-cert.pem` (4096-bit Offline Root CA)
+* `certs/server-cert.pem` & `server-key.pem` (Broker certificate with IP SAN)
+* `certs/python-client-cert.pem` & `python-client-key.pem` (Backend client)
+* `certs/esp32-client-cert.pem` & `esp32-client-key-rsa.pem` (ESP32 mbedTLS RSA key)
+
+---
+
+### 2. Start the Hardened MQTT Broker
+Launch the preconfigured Eclipse Mosquitto container with mTLS v1.3:
+
 ```bash
-
-cp server-cert.pem /mnt/c/Progetti/CARE_Lab/mosquitto/config/certs/server-cert.pem
-cp server-key.pem /mnt/c/Progetti/CARE_Lab/mosquitto/config/certs/server-key.pem
-docker restart care_broker
+cd docker
+docker compose up -d
 ```
-### 8.3 Aggiornamento degli Endpoint
 
-  Backend: Aggiornare la variabile MQTT_BROKER (es. tramite export .env) con il nuovo IP.
+---
 
-  ESP32: Aggiornare la costante MQTT_SERVER in firmware/src/secrets.cpp e rieseguire il flash:
-    ```bash
+### 3. Configure and Run Backend Bridge & Auditor
 
-    pio run -t clean
-    pio run -t upload
-    ```
+1. Configure environment variables:
+   ```bash
+   cp .env.example .env
+   ```
+2. Install Python dependencies:
+   ```bash
+   pip install -r backend/requirements.txt
+   ```
+3. Start the asynchronous ingestion bridge:
+   ```bash
+   python backend/main.py
+   ```
+4. Run the interactive Blockchain Integrity Auditor:
+   ```bash
+   python utils/audit.py
+   ```
+
+---
+
+### 4. Deploy ESP32 Firmware
+1. Copy the configuration template:
+   ```bash
+   cp firmware/src/secrets.cpp.example firmware/src/secrets.cpp
+   ```
+2. Insert your WiFi credentials and paste the generated PEM certificates into `firmware/src/secrets.cpp`.
+3. Build and upload using PlatformIO:
+   ```bash
+   cd firmware
+   pio run --target upload
+   ```
+
+---
+
+## 📁 Repository Structure
+
+```
+├── backend/                  # Asynchronous Ingestion & Processing Bridge
+│   ├── blockchain.py         # Web3 Ethereum Notarization Provider
+│   ├── bridge.py             # Multithreaded MQTT Client with SSL Context
+│   ├── config.py             # Environment-aware Configuration Loader
+│   ├── database.py           # SQLite Data Lake Persistence Manager
+│   └── main.py               # Application Entrypoint
+├── blockchain/               # Smart Contracts
+│   └── HealthNotary.sol      # Solidity Notarization Contract (EVM)
+├── certs/                    # PKI Utilities
+│   └── generate_certs.sh     # Automated OpenSSL PKI Generation Pipeline
+├── docker/                   # Deployment Infrastructure
+│   ├── docker-compose.yml    # Containerized Mosquitto Broker
+│   ├── mosquitto.conf        # Zero-Trust mTLS v1.3 Hardened Broker Config
+│   └── mosquitto.acl         # Principle of Least Privilege Access Control List
+├── firmware/                 # ESP32 Microcontroller Firmware (PlatformIO)
+│   ├── include/              # Header Definitions & Configuration
+│   └── src/                  # BLE Ingestion, HMAC Verification & mbedTLS MQTT
+├── utils/                    # Verification & Security Audit Tools
+│   ├── audit.py              # Interactive CLI for Database vs Blockchain Audit
+│   ├── ble_script.py         # BLE Peripheral Telemetry Simulator
+│   └── permission_test.py    # MQTT ACL Permission Unit Tests
+├── .env.example              # Environment Configuration Template
+└── README.md
+```
+
+---
+
+## 📄 License
+This project is licensed under the **Apache 2.0 License** - see the [LICENSE](LICENSE) file for details.
