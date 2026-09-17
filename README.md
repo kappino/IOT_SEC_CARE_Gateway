@@ -24,37 +24,22 @@ The **C.A.R.E. Framework** monitors elderly individuals with comorbidities in ho
 * Real-time triage and emergency alert dispatch to clinical dashboards.
 
 ```mermaid
-flowchart LR
-    subgraph Sensors["Perception Layer"]
-        Oximeter["Jumper 500F / TicWatch E3<br/>(Biomedical Wearables)"]
+flowchart TD
+    subgraph S1["1. Perception & Transport"]
+        Sensor["Jumper 500F / Wearables"] -->|"BLE GATT (HMAC-SHA256)"| Gateway["ESP32 Edge Gateway"]
+        Gateway -->|"mTLS v1.3 (Port 8883)"| Broker["Mosquitto Broker (ACL)"]
+        Broker -->|"mTLS ClientAuth"| Bridge["Python Ingestion Bridge"]
     end
 
-    subgraph Edge["Edge Security Gateway"]
-        ESP32["ESP32 Gateway Node<br/>(FreeRTOS + mbedTLS)"]
+    subgraph S2["2. Persistence & Trust"]
+        Bridge -->|"Store Telemetry"| DB[(Local SQLite Data Lake)]
+        Bridge -->|"SHA-256 Digest"| EVM["EVM Ledger (HealthNotary.sol)"]
     end
 
-    subgraph Broker["Zero-Trust Transport"]
-        Mosquitto["Mosquitto 2.x Broker<br/>(mTLS v1.3 + ACL Engine)"]
+    subgraph S3["3. Clinical Decision"]
+        DB --> Robot["Probot Assistive Robot (LLM)"]
+        DB --> Doctor["Clinical Dashboard (Triage)"]
     end
-
-    subgraph Cloud["Ingestion & Persistence"]
-        Bridge["Python Ingestion Bridge"]
-        DB[(Encrypted SQLite Data Lake)]
-        EVM["Ethereum / Ganache<br/>(HealthNotary.sol)"]
-    end
-
-    subgraph Consumers["Clinical Consumers"]
-        Robot["Assistive Robot (Probot)<br/>LLM Decision Engine"]
-        Doctor["Clinical Dashboard<br/>Emergency Triage"]
-    end
-
-    Oximeter -->|"BLE GATT Write<br/>[Payload + HMAC-SHA256]"| ESP32
-    ESP32 -->|"MQTT over TLS 1.3<br/>(X.509 CN: esp32-client)"| Mosquitto
-    Mosquitto -->|"MQTT Subscribe<br/>(X.509 CN: python-client)"| Bridge
-    Bridge -->|"Persist Telemetry"| DB
-    Bridge -->|"Anchor SHA-256 Digest"| EVM
-    DB --> Robot
-    DB --> Doctor
 ```
 
 **The Threat Reality:** If telemetry is corrupted or spoofed at the perception layer, downstream AI models and clinical supervisors make decisions on falsified parameters, potentially triggering unneeded emergency interventions or failing to detect actual cardiac events.
