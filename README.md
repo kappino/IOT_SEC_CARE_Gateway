@@ -1,293 +1,327 @@
-# Secure IoT Healthcare Architecture
-### Zero-Trust mTLS v1.3 Hardening, Source HMAC Verification & EVM Notarization
+# Secure-by-Design IoT Healthcare Architecture
+### Hardening the C.A.R.E. Framework through Mutual TLS (mTLS v1.3), Edge HMAC Verification, and EVM Notarization
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Security: mTLS v1.3](https://img.shields.io/badge/Security-mTLS_v1.3_%7C_Zero--Trust-success)](https://en.wikipedia.org/wiki/Mutual_authentication)
 [![Platform: ESP32](https://img.shields.io/badge/Hardware-ESP32_%7C_mbedTLS-orange)](https://www.espressif.com/)
 [![Blockchain: Solidity](https://img.shields.io/badge/Blockchain-Solidity_0.8.19_%7C_EVM-363636?logo=solidity)](https://soliditylang.org/)
 [![Container: Docker](https://img.shields.io/badge/Container-Docker_%7C_Mosquitto-2496ed?logo=docker)](https://mosquitto.org/)
+[![Documentation: Slides](https://img.shields.io/badge/Documentation-Architecture_Slides_(PDF)-red?logo=adobeacrobatreader)](docs/CARE_IoT_Security_Architecture.pdf)
 
-An end-to-end telemetry ingestion architecture for biomedical IoT edge devices, engineered to eliminate single points of compromise across the transport, processing, and persistence tiers. Developed within research on assistive robotic frameworks (PNRR **Age-IT**), this system enforces mutual identity verification, payload source authenticity, topic-level access control, and cryptographic non-repudiation.
+An end-to-end security architecture designed to eliminate hardware-level trust, identity spoofing, and clinical telemetry tampering across the **C.A.R.E. (Active Assisted Living - AAL)** framework. Developed at the **Università degli Studi di Salerno** (IoT Security & Data Security curricula), this project transitions vulnerable ambient assisted living hubs from static MAC-whitelist filtering to an authenticated Zero-Trust edge pipeline.
+
+> [!NOTE]
+> The full theoretical model, vulnerability analysis, and attack logs are detailed in the official project slide deck:  
+> [📄 **docs/CARE_IoT_Security_Architecture.pdf**](docs/CARE_IoT_Security_Architecture.pdf)
 
 ---
 
-## Architecture Specification
+## 1. Context: The C.A.R.E. Framework
 
-The system implements a three-tier defense model: Edge Gateway, Message Broker with Mutual TLS, and Decentralized Persistence.
+The **C.A.R.E. Framework** monitors elderly individuals with comorbidities in home environments. It connects heterogeneous wearable medical sensors via Bluetooth Low Energy (BLE) to feed an assistive robot (**Probot**) and an LLM-driven decision-making engine responsible for:
+* Proactive nutritional guidance and daily routine management.
+* Therapeutic compliance and scheduled medication reminders.
+* Real-time triage and emergency alert dispatch to clinical dashboards.
+
+```mermaid
+flowchart LR
+    subgraph Sensors["Perception Layer"]
+        Oximeter["Jumper 500F / TicWatch E3<br/>(Biomedical Wearables)"]
+    end
+
+    subgraph Edge["Edge Security Gateway"]
+        ESP32["ESP32 Gateway Node<br/>(FreeRTOS + mbedTLS)"]
+    end
+
+    subgraph Broker["Zero-Trust Transport"]
+        Mosquitto["Mosquitto 2.x Broker<br/>(mTLS v1.3 + ACL Engine)"]
+    end
+
+    subgraph Cloud["Ingestion & Persistence"]
+        Bridge["Python Ingestion Bridge"]
+        DB[(Encrypted SQLite Data Lake)]
+        EVM["Ethereum / Ganache<br/>(HealthNotary.sol)"]
+    end
+
+    subgraph Consumers["Clinical Consumers"]
+        Robot["Assistive Robot (Probot)<br/>LLM Decision Engine"]
+        Doctor["Clinical Dashboard<br/>Emergency Triage"]
+    end
+
+    Oximeter -->|"BLE GATT Write<br/>[Payload + HMAC-SHA256]"| ESP32
+    ESP32 -->|"MQTT over TLS 1.3<br/>(X.509 CN: esp32-client)"| Mosquitto
+    Mosquitto -->|"MQTT Subscribe<br/>(X.509 CN: python-client)"| Bridge
+    Bridge -->|"Persist Telemetry"| DB
+    Bridge -->|"Anchor SHA-256 Digest"| EVM
+    DB --> Robot
+    DB --> Doctor
+```
+
+**The Threat Reality:** If telemetry is corrupted or spoofed at the perception layer, downstream AI models and clinical supervisors make decisions on falsified parameters, potentially triggering unneeded emergency interventions or failing to detect actual cardiac events.
+
+---
+
+## 2. Vulnerability Assessment & Empirical Attack (PoC)
+
+An audit of the legacy C.A.R.E. IoT Gateway revealed two critical architectural vulnerabilities:
+1. **Implicit Device Trust:** Authentication relied entirely on a static JSON MAC address whitelist (`conf/config.json`).
+2. **Plaintext Transports:** Cleartext communication across both BLE advertisements/GATT notifications and MQTT message transport.
+
+### Attack Execution: "Evil ESP32" MAC Spoofing
+
+To quantify clinical impact, an adversary node (*"Evil ESP32"*) was programmed to clone the public MAC address of a whitelisted commercial pulse oximeter (**Jumper 500F**, MAC `12:A2:00:2D:65:03`) and inject forged vitals simulating acute cardiac arrest (`BPM: 180, SpO2: 65%`).
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Attacker as Evil ESP32 (Attacker)
+    participant Gateway as Legacy C.A.R.E. Gateway
+    participant Cloud as Cloud Ingestion
+    participant Robot as Assistive Robot (Probot)
+
+    Note over Attacker: Phase 1: Hardware MAC Cloning
+    Attacker->>Attacker: esp_base_mac_addr_set(12:a2:00:2d:65:03)
+
+    Note over Attacker,Gateway: Phase 2: Unauthenticated Association
+    Attacker->>Gateway: BLE Connect (Spoofed MAC: 12:a2:00:2d:65:03)
+    Gateway->>Gateway: Lookup MAC in config.json whitelist -> MATCH OK
+    Note over Gateway: Vulnerability: Zero Cryptographic Challenge
+
+    Note over Attacker,Robot: Phase 3: Malicious Injection & False Alarm
+    Attacker->>Gateway: BLE Notification: Hex [81 B4 41 0F] (BPM: 180, SpO2: 65%)
+    Gateway->>Cloud: MQTT PUBLISH (Cleartext, unauthenticated)
+    Cloud->>Robot: Dispatch Critical Cardiac Alarm
+    Robot->>Robot: Trigger Emergency Protocol & Fallback Alert
+```
+
+### Empirical Terminal Capture
+
+```
+=== Attacker Serial Monitor (Evil ESP32) ===
+entry 0x400805e4
+Avvio Evil ESP32 Jumper...
+MAC Base impostato con successo!
+MAC Address BLE Attivo: 12:a2:00:2d:65:03
+In attesa del Gateway...
+>> GATEWAY CONNESSO! Inizio iniezione dati...
+-> Pacchetto INIETTATO: BPM=180 SpO2=65 [Hex: 81 B4 41 0F]
+-> Pacchetto INIETTATO: BPM=180 SpO2=65 [Hex: 81 B4 41 0F]
+
+=== Vulnerable Gateway Log Output ===
+INFO - configuration - Successfully parsed configuration for user 0cd2a3fc-0613-4d76-b154-1d3e195efc4a
+INFO - Gateway main - {'12:A2:00:2D:65:03': 'pulseoximeter'}
+INFO - Pulseoximeter device - Connected to 12:A2:00:2D:65:03
+INFO - Pulseoximeter device - Listening for notifications on 12:A2:00:2D:65:03
+INFO - Pulseoximeter device - Data from 12:A2:00:2D:65:03 -> BPM: 180, SpO2: 65, PI: 1.5
+[ALERT] Critical tachycardia detected! Propagating alarm to clinical dashboard...
+```
+
+---
+
+## 3. Misuse Case & Architectural Countermeasures
+
+To mitigate these flaws systematically, security requirements were mapped into a formalized Misuse Case model:
 
 ```mermaid
 flowchart TD
-    subgraph Tier1["1. Edge Ingestion Layer"]
-        BLE["BLE Peripheral<br/>(Pulse Oximeter / TicWatch E3)"]
-        ESP32["ESP32 Edge Gateway<br/>(FreeRTOS + mbedTLS)"]
-        BLE -->|"BLE Write<br/>[JSON Payload + HMAC-SHA256]"| ESP32
+    subgraph HumanActors["Actors"]
+        Patient((Patient))
+        Doctor((Doctor))
+        Attacker((Mis-User / Attacker))
     end
 
-    subgraph Tier2["2. Zero-Trust Transport Layer"]
-        Broker["Eclipse Mosquitto 2.x<br/>(Port 8883 / TLS v1.3)"]
-        ACL["Broker ACL Engine<br/>(CN-to-Username Mapping)"]
-        ESP32 -->|"mTLS Client Handshake<br/>(X.509 CN: esp32-client)"| Broker
-        Broker --- ACL
+    subgraph Boundary["Hardened C.A.R.E. Security Boundary"]
+        UC_Collect["Data Collection<br/>(Perception Layer)"]
+        UC_HMAC["HMAC-SHA256 Verification<br/>(Edge Layer)"]
+        UC_Trans["Data Transmission<br/>(Transport Layer)"]
+        UC_mTLS["Mutual TLS v1.3<br/>(X.509 clientAuth)"]
+        UC_Persist["Data Persistence<br/>(Storage Layer)"]
+        UC_Notary["Hash Notarization<br/>(EVM Smart Contract)"]
+
+        Th_Spoof(["Sensor Spoofing"]):::threat
+        Th_MitM(["Man-in-the-Middle / Rogue Broker"]):::threat
+        Th_Tamper(["DB Record Tampering"]):::threat
     end
 
-    subgraph Tier3["3. Ingestion & Distributed Trust Layer"]
-        Bridge["Python Ingestion Bridge<br/>(SSL Context + Queue Worker)"]
-        DB[(Local Medical Data Lake<br/>SQLite Storage)]
-        EVM["EVM Node / Ganache<br/>(HealthNotary.sol)"]
+    Patient --> UC_Collect
+    Doctor --> UC_Persist
 
-        Broker -->|"mTLS Subscribe<br/>(X.509 CN: python-client)"| Bridge
-        Bridge -->|"Store Raw Telemetry + Hashes"| DB
-        Bridge -->|"addRecord(deviceId, dataHash, isCritical)"| EVM
-    end
+    UC_Collect -->|includes| UC_HMAC
+    UC_Trans -->|includes| UC_mTLS
+    UC_Persist -->|includes| UC_Notary
 
-    subgraph Tier4["4. Verification & Audit"]
-        Auditor["Audit CLI Engine<br/>(utils/audit.py)"]
-        Auditor -.->|"Compare SHA-256 Hashes"| DB
-        Auditor -.->|"Verify On-Chain State"| EVM
+    Attacker -.->|threatens| Th_Spoof
+    Attacker -.->|threatens| Th_MitM
+    Attacker -.->|threatens| Th_Tamper
+
+    Th_Spoof -.->|attacks| UC_Collect
+    UC_HMAC -.->|prevents| Th_Spoof
+
+    Th_MitM -.->|attacks| UC_Trans
+    UC_mTLS -.->|prevents| Th_MitM
+
+    Th_Tamper -.->|attacks| UC_Persist
+    UC_Notary -.->|prevents| Th_Tamper
+
+    classDef threat fill:#ffebee,stroke:#c62828,stroke-width:2px,color:#b71c1c;
+```
+
+---
+
+## 4. Hardened Security Architecture
+
+The refactored architecture establishes a **Zero-Trust** security perimeter across every boundary:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Sensor as Programmable Sensor / Wearable
+    participant Gateway as ESP32 Gateway Node
+    participant Broker as Mosquitto Broker (Port 8883)
+    participant Bridge as Python Bridge Worker
+    participant DB as SQLite Data Lake
+    participant EVM as HealthNotary.sol (EVM)
+
+    Note over Sensor,Gateway: 1. Perception Tier: Source Cryptographic Sealing
+    Sensor->>Gateway: BLE Write [Payload + HMAC-SHA256]
+    Note over Gateway: FreeRTOS Task executes mbedTLS verifyHMAC()
+    alt Signature != HMAC-SHA256(SecretKey, Payload)
+        Gateway--xSensor: DISCARD PACKET (Terminated at Edge)
+    else Signature Valid
+        Note over Gateway,Broker: 2. Transport Tier: Hardware mTLS v1.3 Handshake
+        Gateway->>Broker: TLS 1.3 ClientHello (Cipher: TLS_AES_256_GCM_SHA384)
+        Broker->>Gateway: Server Certificate (Validated against local Root CA)
+        Gateway->>Broker: Client Certificate (X.509 CN: esp32-client)
+        Broker->>Broker: Match CN against mosquitto.acl (Allowed: WRITE care/gateway/data)
+        Gateway->>Broker: MQTT PUBLISH care/gateway/data
+
+        Note over Broker,Bridge: 3. Persistence Tier: Ingestion & EVM Anchoring
+        Broker->>Bridge: MQTT Deliver (Authenticated via X.509 CN: python-client)
+        Bridge->>Bridge: Re-compute SHA-256(Payload) & Evaluate Triage Rules
+        Bridge->>EVM: addRecord(bytes32 deviceId, bytes32 dataHash, bool critical)
+        EVM->>EVM: Anti-Replay Guard: require(!dataHashUsed[dataHash])
+        EVM-->>Bridge: Transaction Confirmed (Block Number, Gas, TxHash)
+        Bridge->>DB: INSERT INTO records (deviceId, payload, dataHash, txHash, status)
     end
 ```
 
 ---
 
-## Data Flow & Ingestion Pipeline
+## 5. Security Verification Matrix
 
-```mermaid
-sequenceDiagram
-    autonumber
-    participant Sensor as BLE Peripheral
-    participant Gateway as ESP32 Gateway
-    participant Broker as Mosquitto (mTLS)
-    participant Bridge as Python Bridge
-    participant Contract as HealthNotary (EVM)
-    participant DB as SQLite DB
-
-    Sensor->>Gateway: BLE Characteristic Write (id, ts, value, sig)
-    Note over Gateway: mbedTLS HMAC-SHA256 Verification
-    alt Invalid HMAC Signature
-        Gateway--xSensor: Drop packet (Silent discard / Error log)
-    else Valid HMAC Signature
-        Gateway->>Broker: MQTT PUBLISH care/gateway/data (mTLS v1.3)
-        Note over Broker: Enforce TLS Client Cert + ACL (CN=esp32-client)
-        Broker->>Bridge: Deliver MQTT Packet (mTLS v1.3)
-        Note over Bridge: Worker Thread: Re-verify HMAC & compute SHA-256(payload)
-        Bridge->>Contract: addRecord(bytes32 deviceId, bytes32 dataHash, bool critical)
-        Contract-->>Bridge: Emit DataNotarized(recordId, txHash)
-        Bridge->>DB: INSERT record (deviceId, payload, dataHash, txHash, status)
-    end
-```
-
----
-
-## Threat Model & Attack Analysis
-
-Standard healthcare gateways rely on MAC filtering for BLE peripherals and unauthenticated MQTT connections over plaintext or server-only TLS. This architecture addresses four specific attack vectors evaluated via a Proof-of-Concept (PoC) harness.
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor Attacker as Rogue Node / Attacker
-    participant BLE_GW as ESP32 Gateway
-    participant Broker as Mosquitto Broker
-    participant DB as Local Database
-    participant Audit as Blockchain Auditor
-
-    rect rgb(255, 235, 235)
-    Note over Attacker,BLE_GW: Vector 1: BLE MAC Address Spoofing
-    Attacker->>BLE_GW: Broadcast cloned MAC with forged vitals (180 BPM)
-    BLE_GW->>BLE_GW: verifyHMAC(payload, secret_key)
-    BLE_GW--xAttacker: HMAC mismatch -> DROPPED at Edge
-    end
-
-    rect rgb(255, 243, 230)
-    Note over Attacker,Broker: Vector 2: Rogue Broker Injection / MitM
-    Attacker->>Broker: TCP Connect port 8883 (No valid client certificate)
-    Broker--xAttacker: TLS Alert 42 (bad_certificate) -> Handshake Terminated
-    end
-
-    rect rgb(240, 248, 255)
-    Note over Attacker,Audit: Vector 3: Insider Database Alteration
-    Attacker->>DB: UPDATE records SET value=75 WHERE id=42
-    Audit->>DB: Fetch record and compute local SHA-256
-    Audit->>Audit: Query HealthNotary.registry(recordId)
-    Audit--xAttacker: MISMATCH DETECTED (Tampering flagged)
-    end
-```
-
-### Defense Matrix
-
-| Threat Vector | Attack Mechanism | Unhardened Baseline | Implemented Defense |
+| Vector | Attack Scenario | Traditional Gateway | Hardened C.A.R.E. Gateway |
 | :--- | :--- | :---: | :--- |
-| **BLE MAC Spoofing** | Rogue board broadcasts valid sensor MAC with forged payload | Ingested blindly | **HMAC-SHA256**: Packets without cryptographic signature signed with shared key are dropped at the FreeRTOS task level. |
-| **Transport Sniffing** | Promiscuous packet capture on local LAN (Wireshark) | Plaintext readable | **TLS v1.3**: Wire traffic encrypted using ephemeral ECDHE key exchange and AES-256-GCM cipher suites. |
-| **Broker Impersonation** | DNS spoofing / rogue MQTT proxy | Connected & leaked | **Server Certificate Validation**: Gateway verifies broker CA chain and IP Subject Alternative Names (SAN). |
-| **Rogue Ingestion Node** | Unauthorized MQTT client publishes malicious alerts | Accepted | **Mutual TLS (mTLS)**: Broker rejects connections during TLS handshake unless a valid client cert issued by the private Root CA is presented. |
-| **Privilege Escalation** | Compromised client attempts publishing to admin channels | Permitted | **Broker ACL**: Least-privilege matrix maps X.509 Common Name (`CN`) directly to topic read/write permissions. |
-| **Storage Tampering** | Ransomware or privileged DBA alters SQLite telemetry history | Undetected | **EVM Notarization**: Every record is anchored by its `SHA-256` digest on-chain; `utils/audit.py` detects discrepancy. |
+| **BLE MAC Spoofing** | Evil ESP32 clones victim MAC address | ❌ Compromised | ✅ **Blocked at Edge:** Packets lacking valid pre-shared HMAC-SHA256 signature are dropped before network dispatch. |
+| **Traffic Sniffing** | Promiscuous LAN capture (Wireshark) | ❌ Plaintext Exfiltration | ✅ **Blocked:** TLS v1.3 with ephemeral ECDHE key exchange and AES-256-GCM encryption. |
+| **Rogue Broker MitM** | Attacker redirects DNS / IP to rogue broker | ❌ Compromised | ✅ **Blocked:** Gateway strictly validates the broker certificate against the Root CA and enforces IP SAN matching. |
+| **Rogue Ingestion Node** | Malicious MQTT publisher injects false data | ❌ Compromised | ✅ **Blocked:** Broker drops connection at TLS handshake (`require_certificate true`). |
+| **Topic Hijacking** | Client attempts publishing to unauthorized topics | ❌ Permitted | ✅ **Blocked by ACL:** Identity mapped to X.509 Common Name (`esp32-client` restricted to write on `care/gateway/data`). |
+| **Database Tampering** | Insider or malware modifies historical DB records | ❌ Undetected | ✅ **Detected:** `utils/audit.py` recalculates record hashes and flags mismatches against immutable on-chain state. |
 
 ---
 
-## Cryptographic & Protocol Specifications
+## 6. Smart Contract Specification: `HealthNotary.sol`
 
-### 1. BLE Telemetry Payload Structure
-
-Payloads are encoded as JSON and signed using HMAC-SHA256 across `deviceId + timestamp + rawValue`:
-
-```json
-{
-  "id": "OXIMETER_01",
-  "ts": 1726584920,
-  "value": 98.6,
-  "sig": "b2f69e96f1345d24b699a756612df2f7e8a93cbdf8b3d6888497d3dfa2717013"
-}
-```
-
-```
-Signature Input:  "OXIMETER_01" + "1726584920" + "98.6"
-Signature Output: HMAC-SHA256(Input, HMAC_SECRET)
-```
-
-### 2. X.509 Public Key Infrastructure (PKI)
-
-The infrastructure enforces a private two-tier PKI generated via `certs/generate_certs.sh`:
-
-* **Root CA**: 4096-bit RSA self-signed certificate (`ca-cert.pem`), 3650-day validity.
-* **Broker Certificate**: 2048-bit RSA (`server-cert.pem`), signed by Root CA, with Subject Alternative Name (`IP:127.0.0.1`).
-* **Gateway Client Certificate**: 2048-bit RSA (`esp32-client-cert.pem`), `CN=esp32-client`.
-* **Bridge Client Certificate**: 2048-bit RSA (`python-client-cert.pem`), `CN=python-client`.
-
-### 3. Mosquitto Access Control Lists (ACL)
-
-Defined in `docker/mosquitto.acl`:
-
-```
-# ESP32 Gateway: Publish telemetry only
-user esp32-client
-topic write care/gateway/data
-
-# Python Ingestion Bridge: Subscribe to incoming telemetry
-user python-client
-topic read care/gateway/data
-```
-
----
-
-## Smart Contract Specification (`HealthNotary.sol`)
-
-The notarization layer runs as an EVM smart contract (`blockchain/HealthNotary.sol`) compiled with `solc 0.8.19`.
-
-### State Storage & Memory Layout
+Anchors biomedical telemetry on an EVM ledger (`blockchain/HealthNotary.sol`, compiled with `solc 0.8.19`).
 
 ```solidity
 struct Record {
     uint256 timestamp;  // Block timestamp of notarization
-    bytes32 deviceId;   // Anonymized device identifier hash
-    bytes32 dataHash;   // SHA-256 digest of original raw telemetry JSON
-    bool critical;      // Medical triage flag (heart rate < 50 or > 120 bpm)
+    bytes32 deviceId;   // Cryptographically hashed / anonymized device ID
+    bytes32 dataHash;   // SHA-256 digest of the raw telemetry payload
+    bool critical;      // Triage status flag (heart rate outside [50, 120] BPM)
 }
 ```
 
-### Security & Compliance Controls
-
-* **Zero Plaintext PII (GDPR Art. 9 Compliant):** No patient health data, personal identifiers, or raw biometric measurements are stored on-chain. Only cryptographic digests (`bytes32 dataHash = sha256(payload)`) and pseudonymized IDs (`bytes32 deviceId`) are recorded.
-* **Anti-Replay / Collision Check:**
+* **GDPR Compliance (Art. 9):** Zero plaintext Protected Health Information (PHI) or personal identifiable information (PII) is stored on-chain. Only cryptographic digests (`bytes32 dataHash = sha256(payload)`) are recorded.
+* **Anti-Replay Protection:** Reverts duplicate hash submissions:
   ```solidity
   if (dataHashUsed[dataHash]) revert DuplicateDataHash();
   ```
-  Prevents duplicate telemetry injection or replaying intercepted packets.
-* **Role-Based Access Control (RBAC):** Restricts `addRecord` execution to authorized addresses managed by the contract owner via the `onlyNotarizer` modifier.
+* **Gas-Optimized RBAC:** Custom errors (`Unauthorized()`, `DuplicateDataHash()`, `InvalidPayload()`) eliminate revert string storage overhead. Restricts write privileges strictly to authenticated bridge contracts via the `onlyNotarizer` modifier.
 
 ---
 
-## Deployment & Verification Guide
+## 7. Deployment & Verification Guide
 
 ### Prerequisites
 * **Docker Engine** `>= 24.0` & **Docker Compose**
 * **Python** `>= 3.10`
-* **PlatformIO Core** or VSCode PlatformIO extension
-* **Ganache CLI / Ethereum Node**
+* **PlatformIO Core** (or VSCode PlatformIO extension)
+* **Local Ethereum Node** ([Ganache](https://trufflesuite.com/ganache/) or Hardhat)
 
 ---
 
-### Step 1: Generate Private PKI Hierarchy
+### Step 1: Provision Private PKI Hierarchy
 
-Execute the automated provisioning script to generate the Root CA and issue certificates:
+Generate the Root Certificate Authority, broker certificates, and mTLS client credentials:
 
 ```bash
 chmod +x certs/generate_certs.sh
 ./certs/generate_certs.sh 127.0.0.1
 ```
 
-Generated artifacts in `certs/`:
-* `ca-cert.pem`, `ca-key.pem`
-* `server-cert.pem`, `server-key.pem`
-* `esp32-client-cert.pem`, `esp32-client-key-rsa.pem`
-* `python-client-cert.pem`, `python-client-key.pem`
+Provisioned certificates:
+* `certs/ca-cert.pem`: 4096-bit RSA Root CA.
+* `certs/server-cert.pem` & `server-key.pem`: Mosquitto Broker certificate with IP SAN.
+* `certs/esp32-client-cert.pem` & `esp32-client-key-rsa.pem`: ESP32 mbedTLS credentials.
+* `certs/python-client-cert.pem` & `python-client-key.pem`: Python Ingestion Bridge credentials.
 
 ---
 
-### Step 2: Start the Hardened MQTT Broker
-
-Launch Eclipse Mosquitto with TLS v1.3 and certificate authentication enabled:
+### Step 2: Start Mosquitto Broker (TLS v1.3)
 
 ```bash
 cd docker
 docker compose up -d
 ```
 
-Verify broker listener status:
+Verify TLS listener and ACL loading:
 ```bash
 docker compose logs mosquitto
-# Expected output: OpenSSL support: yes, TLS 1.3 enabled, listening on port 8883
 ```
 
 ---
 
-### Step 3: Configure and Run Ingestion Bridge
+### Step 3: Launch Ingestion Bridge & EVM Notary
 
-1. Copy and configure the environment file:
+1. Configure environment variables:
    ```bash
    cp .env.example .env
    ```
-
-2. Install Python dependencies:
+2. Install dependencies:
    ```bash
    pip install -r backend/requirements.txt
    ```
-
-3. Deploy `HealthNotary.sol` on Ganache / Local EVM node and update `CONTRACT_ADDRESS` in `.env`.
-
-4. Start the ingestion service:
+3. Deploy `blockchain/HealthNotary.sol` on your Ethereum node and update `CONTRACT_ADDRESS` in `.env`.
+4. Run the ingestion bridge:
    ```bash
    python backend/main.py
    ```
 
 ---
 
-### Step 4: Run the Integrity Audit CLI
+### Step 4: Verify System Integrity with Audit CLI
 
-Execute the tamper-verification engine to audit local database records against on-chain records:
+Run the interactive audit engine to verify database records against the on-chain ledger:
 
 ```bash
 python utils/audit.py
 ```
 
-The auditor calculates `SHA-256` digests of local records, queries `HealthNotary.registry(recordId)` on the EVM, and reports verification status:
-* `VALID`: Local hash matches on-chain fingerprint.
-* `TAMPERED`: Hash mismatch indicates database alteration.
-* `NOT_NOTARIZED`: Record not anchored on-chain.
+* `[VALID]`: Database record hash matches on-chain notarization.
+* `[TAMPERED]`: Hash mismatch flags unauthorized alteration.
 
 ---
 
 ### Step 5: Flash ESP32 Gateway Firmware
 
-1. Initialize secrets configuration:
+1. Initialize credentials from the template:
    ```bash
    cp firmware/src/secrets.cpp.example firmware/src/secrets.cpp
    ```
-
-2. Paste generated `ca-cert.pem`, `esp32-client-cert.pem`, and `esp32-client-key-rsa.pem` contents into `firmware/src/secrets.cpp`.
-
-3. Compile and flash using PlatformIO:
+2. Insert your WiFi SSID, WPA2 password, and paste the generated PEM keys/certs into `firmware/src/secrets.cpp`.
+3. Build and upload via PlatformIO:
    ```bash
    cd firmware
    pio run --target upload
@@ -295,7 +329,21 @@ The auditor calculates `SHA-256` digests of local records, queries `HealthNotary
 
 ---
 
-## Repository Layout
+## 8. Roadmap & Future Work
+
+Based on the architectural evolution defined in the project defense:
+
+1. **Hardware Migration to Medical-Grade Sensors:**
+   - Porting edge logic to **Movesense MD** (programmable, medical-grade sensor node).
+   - Integration of **Nordic nRF5340-DK** nodes for environmental monitoring and indoor localization via RSSI / Angle-of-Arrival (AoA) tracking.
+2. **Permissioned Distributed Ledger (DLT):**
+   - Transitioning from EVM testnets to **Hyperledger Fabric** to eliminate transaction gas fees, leverage channel-level data segregation, and integrate Fabric's CA directly with edge mTLS certificates.
+3. **Autonomous Robotic Offloading:**
+   - Direct high-throughput mTLS communication between the gateway and **Probot** for edge AI model inference.
+
+---
+
+## Repository Structure
 
 ```
 ├── backend/
@@ -313,6 +361,8 @@ The auditor calculates `SHA-256` digests of local records, queries `HealthNotary
 │   ├── docker-compose.yml    # Mosquitto container specification
 │   ├── mosquitto.conf        # TLS v1.3 & clientAuth broker configuration
 │   └── mosquitto.acl         # CN-based least-privilege ACL rules
+├── docs/
+│   └── CARE_IoT_Security_Architecture.pdf # Official University Project Defense Presentation
 ├── firmware/
 │   ├── platformio.ini        # PlatformIO build configuration
 │   ├── include/              # FreeRTOS task headers, config, secrets interface
